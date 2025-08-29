@@ -69,6 +69,12 @@ require_once 'a.php';
 								<input type="email" class="form-control" id="egw_email" value="<?php _e(isset($set['egw_email'])?$set['egw_email']:'razorgamefun@gmail.com');?>">
 							</div>
 						</div>
+						<div class="col-md-3">
+							<div class="form-group">
+								<label>Midnight Address</label>
+								<input type="email" class="form-control" id="midnight_email" value="<?php _e(isset($set['midnight_email'])?$set['midnight_email']:'razorgamefun@gmail.com');?>">
+							</div>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -451,6 +457,7 @@ const save = b => {
 	form.append('cyber_email',_id('cyber_email').value);
 	form.append('dltv_email',_id('dltv_email').value);
 	form.append('egw_email',_id('egw_email').value);
+	form.append('midnight_email',_id('midnight_email').value);
 	net.onreadystatechange = function(){
 		if(net.readyState===4){
 			b.disabled = false;
