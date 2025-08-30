@@ -38,29 +38,27 @@ $hero = [];
 function cn_gt($s){ return preg_replace('/[0-9]+/', '', strtolower(preg_replace("/[^A-Za-z0-9 ]/", '', $s))); }
 foreach($h as $hh){ $hero[] = cn_gt($hh); }
 
-// List page
+// List page (Scrape.do proxy via get_html)
 $listUrl = 'https://game-tournaments.com/en/dota-2/matches';
 $gc = get_html($listUrl);
 if(!$gc){ rdie(['error'=>'No list HTML']); }
-$html = str_get_html($gc);
+if($debug){ @file_put_contents('/tmp/gt_list.html',$gc); }
 
-// Find LIVE matches (loose: allow any live marker; you can tighten later by scd/data-time)
+// Discover match links via regex (limit to avoid heavy scans)
 $links = [];
-foreach($html->find('a') as $a){
-    if(!$a->hasAttribute('href')) continue;
-    $href = $a->getAttribute('href');
-    if(strpos($href, '/en/dota-2/') !== false && preg_match('~-[0-9]+$~',$href)){
-        // Look around for LIVE label
-        $txt = strtolower($a->plaintext);
-        $around = strtolower($a->parent()->outertext);
-        if(strpos($around,'live') !== false || strpos($txt,'live') !== false){
-            $links[] = (strpos($href,'http')===0 ? $href : 'https://game-tournaments.com'.$href);
-        }
+if(preg_match_all('~href="(/en/dota-2/[^"\s]*?-([0-9]+))"~i', $gc, $m)){
+    foreach($m[1] as $i => $rel){
+        $id = $m[2][$i];
+        $abs = 'https://game-tournaments.com'.$rel;
+        $links[$id] = $abs;
+        if(count($links) >= 20) break; // cap
     }
 }
 $links = array_values(array_unique($links));
 if($debug){ echo 'Found links: '.sizeof($links).'<br/>'; }
-if(!sizeof($links)){ rdie(['error'=>'No live games']); }
+if(!sizeof($links)){
+    rdie(['error'=>'No live games']);
+}
 
 $res_matches = [];
 foreach($links as $a){
@@ -70,55 +68,49 @@ foreach($links as $a){
 
     $b = get_html($a);
     if(!$b) continue;
+    if($debug){ echo 'scan '.$the_id.' len='.strlen($b).'<br/>'; }
     $c = str_get_html($b);
 
-    // Optional: time filter (loose for testing)
+    // Optional time filter (loose for now)
     $recent_ok = true;
-    $scd = $c->find('span.scd[data-time]',0);
-    if($scd){
-        $dt = intval($scd->getAttribute('data-time'));
-        // if($dt < 180) $recent_ok = true; else $recent_ok = false;
-        $recent_ok = true; // keep loose for testing per your request
-    }
+    $scd = $c ? $c->find('span.scd[data-time]',0) : null;
+    if($scd){ $dt = intval($scd->getAttribute('data-time')); $recent_ok = true; }
     if(!$recent_ok) continue;
 
     $nm = [];
     $nm['mid'] = $the_id;
-    $team1 = ['heroes'=>[]];
-    $team2 = ['heroes'=>[]];
+    $team1 = ['heroes'=>[],'name'=>'Radiant'];
+    $team2 = ['heroes'=>[],'name'=>'Dire'];
 
-    // Team names (best-effort)
-    $tns = $c->find('h1, h2');
-    if(sizeof($tns)>=1){ $team1['name'] = trim($tns[0]->plaintext); } else { $team1['name']='Radiant'; }
-    if(sizeof($tns)>=2){ $team2['name'] = trim($tns[1]->plaintext); } else { $team2['name']='Dire'; }
-
-    // Draft block
-    $draftContainers = $c->find('div[class*=draft], section[class*=draft]');
-    foreach($draftContainers as $draft){
-        $nodes = $draft->find('[class*=pick], .pick, [data-hero-name], [data-hero-id]');
-        foreach($nodes as $p){
-            $cls = isset($p->class) ? strtolower($p->class) : '';
-            if(strpos($cls,'ban')!==false) continue;
-            // Determine side by walking up
-            $side = null; $cur = $p; $iter=0;
-            while($cur && $iter<6){
-                $ccls = isset($cur->class)? strtolower($cur->class):'';
-                if(strpos($ccls,'radiant')!==false){ $side='radiant'; break; }
-                if(strpos($ccls,'dire')!==false){ $side='dire'; break; }
-                $cur = $cur->parent(); $iter++;
+    // Picks from draft sections
+    if($c){
+        $draftContainers = $c->find('div[class*=draft], section[class*=draft]');
+        foreach($draftContainers as $draft){
+            $nodes = $draft->find('[class*=pick], .pick, [data-hero-name], [data-hero-id]');
+            foreach($nodes as $p){
+                $cls = isset($p->class) ? strtolower($p->class) : '';
+                if(strpos($cls,'ban')!==false) continue;
+                // Determine side
+                $side = null; $cur = $p; $iter=0;
+                while($cur && $iter<6){
+                    $ccls = isset($cur->class)? strtolower($cur->class):'';
+                    if(strpos($ccls,'radiant')!==false){ $side='radiant'; break; }
+                    if(strpos($ccls,'dire')!==false){ $side='dire'; break; }
+                    $cur = $cur->parent(); $iter++;
+                }
+                // Extract hero name
+                $hero_name = '';
+                if($p->hasAttribute('data-hero-name')) $hero_name = $p->getAttribute('data-hero-name');
+                if(!$hero_name && $p->hasAttribute('title')) $hero_name = trim($p->getAttribute('title'));
+                if(!$hero_name){ $im=$p->find('img',0); if($im){ $hero_name=$im->getAttribute('alt')?:$im->getAttribute('title'); } }
+                $hero_name = $hero_name ? trim($hero_name) : '';
+                if(!$hero_name || !$side) continue;
+                $hid = array_search(cn_gt($hero_name),$hero);
+                if($hid===false || $hid===null) continue;
+                $hh = ['id'=>$hid,'hname'=>$hero_name,'image'=>'','wcc'=>''];
+                if($side==='radiant'){ if(sizeof($team1['heroes'])<5) $team1['heroes'][]=$hh; }
+                if($side==='dire'){ if(sizeof($team2['heroes'])<5) $team2['heroes'][]=$hh; }
             }
-            // Extract hero name
-            $hero_name = '';
-            if($p->hasAttribute('data-hero-name')) $hero_name = $p->getAttribute('data-hero-name');
-            if(!$hero_name && $p->hasAttribute('title')) $hero_name = trim($p->getAttribute('title'));
-            if(!$hero_name){ $im=$p->find('img',0); if($im){ $hero_name=$im->getAttribute('alt')?:$im->getAttribute('title'); } }
-            $hero_name = $hero_name ? trim($hero_name) : '';
-            if(!$hero_name || !$side) continue;
-            $hid = array_search(cn_gt($hero_name),$hero);
-            if($hid===false || $hid===null) continue;
-            $hh = ['id'=>$hid,'hname'=>$hero_name,'image'=>'','wcc'=>''];
-            if($side==='radiant'){ if(sizeof($team1['heroes'])<5) $team1['heroes'][]=$hh; }
-            if($side==='dire'){ if(sizeof($team2['heroes'])<5) $team2['heroes'][]=$hh; }
         }
     }
 
@@ -163,7 +155,6 @@ foreach($res_matches as $m){
             }
         }
 
-        $nb1 += 0; $nb2 += 0;
         $m['team1']['score'] = number_format($nb1, 2, '.', '');
         $m['team2']['score'] = '- '.number_format($nb2, 2, '.', '');
         $m['total'] = number_format(($nb1-$nb2), 2, '.', '');
