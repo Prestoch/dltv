@@ -25,6 +25,7 @@ $cyber_email = '';
 $dltv_email = '';
 $egw_email = '';
 $midnight_email = '';
+$gt_email = '';
 $email_if_less = -5;
 $email_if_greater = 5;
 
@@ -45,6 +46,7 @@ if(file_exists('settings/set.json')){
 		$dltv_email = $set['dltv_email'];
 		$egw_email = $set['egw_email'];
 		$midnight_email = isset($set['midnight_email']) ? $set['midnight_email'] : '';
+		$gt_email = isset($set['gt_email']) ? $set['gt_email'] : '';
 		$hero_have = $set['hh'];
 		$email_if_less = (int) $set['less'];
 		$email_if_greater = (int) $set['greater'];

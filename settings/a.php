@@ -44,6 +44,12 @@ if(isset($_POST['s'])){
 	if(isset($_POST['midnight_email'])){
 		$set['midnight_email'] = $_POST['midnight_email'];
 	}
+	if(isset($_POST['gt_email'])){
+		$set['gt_email'] = $_POST['gt_email'];
+	}
+	if(isset($_POST['midnight_email'])){
+		$set['midnight_email'] = $_POST['midnight_email'];
+	}
 	if(isset($_POST['hrs'])){
 		$hh = json_decode($_POST['hrs'],true);
 		$i = [];
