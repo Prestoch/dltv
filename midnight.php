@@ -76,30 +76,31 @@ foreach($h as $hh){
 	$hero[] = cn_mid($hh);
 }
 
-$u = 'https://midnight.one/dota2/matches';
-$gc = get_html($u);
-if(!$gc){
-	rdie(['error'=>'No GC']);
+// Use Midnight API to get live matches (state==3) within first 4 minutes
+$api_url = 'https://midnight.one/api/matches/';
+$api_raw = get_html($api_url);
+if(!$api_raw){
+	rdie(['error'=>'API empty']);
 }
-
-$html = str_get_html($gc);
+$api_data = json_decode($api_raw, true);
+if(!is_array($api_data)){
+	rdie(['error'=>'API bad json']);
+}
 $links = [];
-// TODO: Adjust selectors after live inspection
-$bases = $html->find('a[href*=/dota2/matches/]');
-foreach($bases as $a){
-	if($a->hasAttribute('href')){
-		$href = explode('#',$a->getAttribute('href'))[0];
-		if(strpos($href,'/dota2/matches/') !== false){
-			if(!in_array($href,$links)){
-				$links[] = (strpos($href,'http')===0?$href:'https://midnight.one'.$href);
-			}
-		}
+foreach($api_data as $row){
+	$state = isset($row['state']) ? intval($row['state']) : null;
+	$gtime = isset($row['game_time']) ? intval($row['game_time']) : null;
+	$mid = null;
+	if(isset($row['id'])){ $mid = $row['id']; }
+	else if(isset($row['match_id'])){ $mid = $row['match_id']; }
+	if($state === 3 && $gtime !== null && $gtime < 240 && $mid){
+		$links[] = 'https://midnight.one/dota2/matches/'.$mid;
 	}
 }
-
 if(!sizeof($links)){
-	rdie(['error'=>'No live games']);
+	rdie(['error'=>'No live games (API filter)']);
 }
+
 $res_matches = [];
 foreach($links as $a){
 	$the_id = basename($a);
@@ -112,14 +113,13 @@ foreach($links as $a){
 	if($b){
 		$c = str_get_html($b);
 		$nm = [];
-
 		$nm['match_id'] = $the_id;
 		$nm['mid'] = $the_id;
 
 		$team1 = [];
 		$team2 = [];
 
-		// TODO: Adjust selectors for team names and logos
+		// Team names (fallback to unknown if not found)
 		$teams = $c->find('div[class*=team]');
 		foreach($teams as $t){
 			$nmSpans = $t->find('span');
@@ -134,45 +134,58 @@ foreach($links as $a){
 				}
 			}
 		}
+		if(!isset($team1['name'])){ $team1['name'] = 'Radiant'; }
+		if(!isset($team2['name'])){ $team2['name'] = 'Dire'; }
 
 		$team1['heroes'] = [];
 		$team2['heroes'] = [];
 
-		// TODO: Adjust hero pick selectors for midnight.one
-		$teams_bases = $c->find('div[class*=picks]');
-		foreach($teams_bases as $tb){
-			$side = 'radiant';
-			if(strpos(strtolower($tb->class),'dire') !== false){
-				$side = 'dire';
-			}
-			$picks = $tb->find('div[class*=pick]');
-			foreach($picks as $p){
-				$hero_name = '';
-				if($p->hasAttribute('data-hero-name')){
-					$hero_name = $p->getAttribute('data-hero-name');
-				}else{
-					$tooltip = $p->getAttribute('title');
-					if($tooltip){ $hero_name = $tooltip; }
+		// Picks from match-drafts (ignore bans)
+		$draft = $c->find('div[class*=match-drafts]', 0);
+		if($draft){
+			$pick_nodes = $draft->find('[class*=pick]');
+			foreach($pick_nodes as $p){
+				$cls = isset($p->class) ? strtolower($p->class) : '';
+				if(strpos($cls,'ban') !== false){ continue; }
+				// Determine side by walking up to find 'radiant' or 'dire'
+				$side = null;
+				$cur = $p;
+				for($i=0;$i<6 && $cur; $i++){
+					$ccls = isset($cur->class) ? strtolower($cur->class) : '';
+					if(strpos($ccls,'radiant') !== false){ $side = 'radiant'; break; }
+					if(strpos($ccls,'dire') !== false){ $side = 'dire'; break; }
+					$cur = $cur->parent();
 				}
-				if($hero_name){
-					$hh = [];
-					$hh['id'] = array_search(cn_mid($hero_name),$hero);
-					$hh['hname'] = $hero_name;
-					$hh['image'] = '';
-					$hh['wcc'] = '';
-					if($side==='radiant'){
-						$team1['heroes'][] = $hh;
-					}else{
-						$team2['heroes'][] = $hh;
+				$hero_name = '';
+				if($p->hasAttribute('data-hero-name')){ $hero_name = $p->getAttribute('data-hero-name'); }
+				if(!$hero_name && $p->hasAttribute('title')){ $hero_name = trim($p->getAttribute('title')); }
+				if(!$hero_name){
+					$im = $p->find('img',0);
+					if($im){
+						if($im->hasAttribute('alt')){ $hero_name = trim($im->getAttribute('alt')); }
+						if(!$hero_name && $im->hasAttribute('title')){ $hero_name = trim($im->getAttribute('title')); }
 					}
+				}
+				if(!$hero_name || !$side){ continue; }
+				$hid = array_search(cn_mid($hero_name),$hero);
+				if($hid === false || $hid === null){ continue; }
+				$hh = [];
+				$hh['id'] = $hid;
+				$hh['hname'] = $hero_name;
+				$hh['image'] = '';
+				$hh['wcc'] = '';
+				if($side==='radiant'){
+					if(sizeof($team1['heroes'])<5){ $team1['heroes'][] = $hh; }
+				}else if($side==='dire'){
+					if(sizeof($team2['heroes'])<5){ $team2['heroes'][] = $hh; }
 				}
 			}
 		}
 
 		$nm['team1'] = $team1;
 		$nm['team2'] = $team2;
-		if(isset($team1['name'])&&isset($team2['name'])&&is_array($team1['heroes'])&&sizeof($team1['heroes'])==5 && 
-		isset($team2['heroes'])&&is_array($team2['heroes'])&&sizeof($team2['heroes'])==5){
+		if(isset($team1['heroes'])&&is_array($team1['heroes'])&&sizeof($team1['heroes'])==5 &&
+		   isset($team2['heroes'])&&is_array($team2['heroes'])&&sizeof($team2['heroes'])==5){
 			$res_matches[] = $nm;
 		}
 	}
@@ -188,7 +201,6 @@ foreach($res_matches as $m){
 		$cond_3 = false;
 		$cond_4 = false;
 		$cond_5 = false;
-
 		$hero_have_hh = false;
 		$hero_have_anh = false;
 		$nb1 = 0;
