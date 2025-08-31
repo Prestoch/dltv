@@ -46,10 +46,14 @@ if($debug){ @file_put_contents('/tmp/gt_list.html',$gc); }
 $html = str_get_html($gc);
 if(!$html){ rdie(['error'=>'List HTML parse error']); }
 
-// Find LIVE matches by span.match-live and extract match ID from its id attribute (live_time_ID)
+// Find LIVE matches by span.match-live and require <b> child (//*[@id="live_time_MATCHID"]/b)
 $links = [];
 $lives = $html->find('span[class=match-live]');
 foreach($lives as $lv){
+    // require red dot <b> child
+    $dot = $lv->find('b',0);
+    if(!$dot){ continue; }
+
     $live_id = '';
     if($lv->hasAttribute('id')){
         $live_id = preg_replace('/[^0-9]/','',$lv->getAttribute('id'));
@@ -61,6 +65,7 @@ foreach($lives as $lv){
         $recent_ok = true; // loosened for testing
     }
     if(!$recent_ok || !$live_id){ continue; }
+
     $cur = $lv; $row = null; $hop = 0;
     while($cur && $hop<10){ if(isset($cur->tag) && strtolower($cur->tag)==='tr'){ $row=$cur; break; } $cur = $cur->parent(); $hop++; }
     $link = '';
@@ -169,7 +174,7 @@ foreach($res_matches as $m){
         $m['total'] = number_format(($nb1-$nb2), 2, '.', '');
         $m['total_success'] = ($nb1>$nb2);
 
-        // Email body: League title on top, slightly larger icons closer together, show each team score at right
+        // Email body: League title on top, larger icons closer together, show each team score at right, and only the number for total
         $leagueTitle = isset($m['league']) && $m['league'] ? $m['league'] : (($m['team1']['name']??'Radiant').' vs '.($m['team2']['name']??'Dire'));
         $gh = '<div style="width:700px;max-width:100%;border:1px solid #ccc;padding:16px;font-family:Arial,Helvetica,sans-serif;">';
         $gh.= '<h2 style="margin:0 0 12px 0;">'.htmlspecialchars($leagueTitle).'</h2>';
@@ -209,7 +214,7 @@ foreach($res_matches as $m){
         if(($total_f<0&&$total_f<$email_if_less)||$total_f>$email_if_greater){ $cond_one=true; $mets[]='Condition 1 is met'; }
         if((!isset($team_have_plus)||!is_array($team_have_plus)||!sizeof($team_have_plus)) ||
            in_array($m['team1']['cc_pos'].'+'.$m['team2']['cc_neg'].'-',$team_have_plus) ||
-           in_array($m['team2']['cc_pos']+'+'+$m['team1']['cc_neg'].'-',$team_have_plus) ||
+           in_array($m['team2']['cc_pos']+'+'.$m['team1']['cc_neg'].'-',$team_have_plus) ||
            in_array($m['team1']['cc_pos'].'+'.$m['team2']['cc_pos'].'+',$team_have_plus) ||
            in_array($m['team2']['cc_pos'].'+'.$m['team1']['cc_pos'].'+',$team_have_plus) ||
            in_array($m['team1']['cc_neg'].'-'.$m['team2']['cc_neg'].'-',$team_have_plus) ||
