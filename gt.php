@@ -169,41 +169,47 @@ foreach($res_matches as $m){
         $m['total'] = number_format(($nb1-$nb2), 2, '.', '');
         $m['total_success'] = ($nb1>$nb2);
 
-        // Email body: League title on top, slightly larger icons closer together
+        // Email body: League title on top, slightly larger icons closer together, show each team score at right
         $leagueTitle = isset($m['league']) && $m['league'] ? $m['league'] : (($m['team1']['name']??'Radiant').' vs '.($m['team2']['name']??'Dire'));
-        $gh = '<div style="width:680px;max-width:100%;border:1px solid #ccc;padding:16px;font-family:Arial,Helvetica,sans-serif;">';
+        $gh = '<div style="width:700px;max-width:100%;border:1px solid #ccc;padding:16px;font-family:Arial,Helvetica,sans-serif;">';
         $gh.= '<h2 style="margin:0 0 12px 0;">'.htmlspecialchars($leagueTitle).'</h2>';
         $gh.='<div style="margin:4px 0 6px 0;font-weight:bold;">'.htmlspecialchars(($m['team1']['name']??'Radiant')).'</div>';
+        $gh.='<div style="display:flex;align-items:flex-start;justify-content:space-between;">';
         $gh.='<div style="display:flex;gap:6px;">';
         for($i=0;$i<min(5,sizeof($m['team1']['heroes']));$i++){
             $hi=$m['team1']['heroes'][$i];
             $gh.='<div style="width:100px;text-align:center;font-size:12px;">';
-            if(!empty($hi['image'])){ $gh.='<img src="'.htmlspecialchars($hi['image']).'" style="width:80px;height:auto;border-radius:4px;">'; }
+            if(!empty($hi['image'])){ $gh.='<img src="'.htmlspecialchars($hi['image']).'" style="width:84px;height:auto;border-radius:4px;">'; }
             $gh.='<div style="margin-top:2px">'.htmlspecialchars($hi['name']).'</div>';
             $gh.='<div style="font-size:14px">'.htmlspecialchars($hi['wr']).' + <span style="'.(($hi['wr_2_success']??true)?'color:green;':'color:red;').'">'.htmlspecialchars($hi['wr_2']).'</span></div>';
             $gh.='</div>';
         }
         $gh.='</div>';
+        $gh.='<div style="min-width:80px;text-align:right;font-size:16px;font-weight:bold;">'.htmlspecialchars($m['team1']['score']).'</div>';
+        $gh.='</div>';
         $gh.='<hr style="border:none;border-top:1px solid #eee;margin:10px 0;">';
         $gh.='<div style="margin:4px 0 6px 0;font-weight:bold;">'.htmlspecialchars(($m['team2']['name']??'Dire')).'</div>';
+        $gh.='<div style="display:flex;align-items:flex-start;justify-content:space-between;">';
         $gh.='<div style="display:flex;gap:6px;">';
         for($i=0;$i<min(5,sizeof($m['team2']['heroes']));$i++){
             $hi=$m['team2']['heroes'][$i];
             $gh.='<div style="width:100px;text-align:center;font-size:12px;">';
-            if(!empty($hi['image'])){ $gh.='<img src="'.htmlspecialchars($hi['image']).'" style="width:80px;height:auto;border-radius:4px;">'; }
+            if(!empty($hi['image'])){ $gh.='<img src="'.htmlspecialchars($hi['image']).'" style="width:84px;height:auto;border-radius:4px;">'; }
             $gh.='<div style="margin-top:2px">'.htmlspecialchars($hi['name']).'</div>';
             $gh.='<div style="font-size:14px">'.htmlspecialchars($hi['wr']).' + <span style="'.(($hi['wr_2_success']??true)?'color:green;':'color:red;').'">'.htmlspecialchars($hi['wr_2']).'</span></div>';
             $gh.='</div>';
         }
         $gh.='</div>';
-        $gh.='<div style="margin-top:12px;font-size:32px;'.($m['total_success']?'color:green;':'color:red;').'">Total: '.htmlspecialchars($m['total']).'</div>';
+        $gh.='<div style="min-width:80px;text-align:right;font-size:16px;font-weight:bold;">'.htmlspecialchars($m['team2']['score']).'</div>';
+        $gh.='</div>';
+        $gh.='<div style="margin-top:12px;font-size:32px;'.($m['total_success']?'color:green;':'color:red;').'">'.htmlspecialchars($m['total']).'</div>';
         $gh.='</div>';
 
         $mets=[]; $total_f = floatval($m['total']);
         if(($total_f<0&&$total_f<$email_if_less)||$total_f>$email_if_greater){ $cond_one=true; $mets[]='Condition 1 is met'; }
         if((!isset($team_have_plus)||!is_array($team_have_plus)||!sizeof($team_have_plus)) ||
            in_array($m['team1']['cc_pos'].'+'.$m['team2']['cc_neg'].'-',$team_have_plus) ||
-           in_array($m['team2']['cc_pos']+'+'.$m['team1']['cc_neg'].'-',$team_have_plus) ||
+           in_array($m['team2']['cc_pos']+'+'+$m['team1']['cc_neg'].'-',$team_have_plus) ||
            in_array($m['team1']['cc_pos'].'+'.$m['team2']['cc_pos'].'+',$team_have_plus) ||
            in_array($m['team2']['cc_pos'].'+'.$m['team1']['cc_pos'].'+',$team_have_plus) ||
            in_array($m['team1']['cc_neg'].'-'.$m['team2']['cc_neg'].'-',$team_have_plus) ||
