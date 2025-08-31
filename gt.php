@@ -54,15 +54,13 @@ foreach($lives as $lv){
 	if($lv->hasAttribute('id')){
 		$live_id = preg_replace('/[^0-9]/','',$lv->getAttribute('id'));
 	}
-	// optional: time filter using child span.scd[data-time]
 	$recent_ok = true;
 	$scd = $lv->find('span[class=scd]',0);
 	if($scd && $scd->hasAttribute('data-time')){
 		$dt = intval($scd->getAttribute('data-time'));
-		$recent_ok = true; // keep loose per request; set to ($dt<180) to enforce
+		$recent_ok = true; // loosened
 	}
 	if(!$recent_ok || !$live_id){ continue; }
-	// climb to row (tr) then find the anchor with this ID in href
 	$cur = $lv; $row = null; $hop = 0;
 	while($cur && $hop<10){ if(isset($cur->tag) && strtolower($cur->tag)==='tr'){ $row=$cur; break; } $cur = $cur->parent(); $hop++; }
 	$link = '';
@@ -71,7 +69,6 @@ foreach($lives as $lv){
 		foreach($as as $a){ if($a->hasAttribute('href')){ $hurl = $a->getAttribute('href'); if(strpos($hurl,'-'.$live_id)!==false){ $link = (strpos($hurl,'http')===0?$hurl:'https://game-tournaments.com'.$hurl); break; } } }
 	}
 	if(!$link){
-		// fallback: search whole doc
 		$fa = $html->find('a[href*=-'.$live_id.']',0);
 		if($fa && $fa->hasAttribute('href')){ $hurl=$fa->getAttribute('href'); $link = (strpos($hurl,'http')===0?$hurl:'https://game-tournaments.com'.$hurl); }
 	}
@@ -99,17 +96,45 @@ foreach($links as $a){
 	$team1 = ['heroes'=>[],'name'=>'Radiant'];
 	$team2 = ['heroes'=>[],'name'=>'Dire'];
 
-	// Parse heroes: two blocks div.heroes likely represent two teams
+	// Try to parse league name and team names
+	$league = '';
+	$ti = $c->find('title',0); if($ti){ $league = trim($ti->plaintext); }
+	$h1 = $c->find('h1',0);
+	if($h1){
+		$t = trim($h1->plaintext);
+		if(stripos($t,' vs ')!==false){ $parts = explode(' vs ', $t, 2); $team1['name']=trim($parts[0]); $team2['name']=trim($parts[1]); }
+	}
+
+	// Parse heroes from blocks
 	$blocks = $c->find('div.heroes');
 	if(sizeof($blocks)>=1){
 		$cards = $blocks[0]->find('div.card');
-		foreach($cards as $cd){ $ht=$cd->find('div.hero-title',0); if($ht){ $name=trim($ht->plaintext); $hid=array_search(cn_gt($name),$hero); if($hid!==false && $hid!==null && sizeof($team1['heroes'])<5){ $team1['heroes'][]=['id'=>$hid,'hname'=>$name,'image'=>'','wcc'=>'']; } } }
+		foreach($cards as $cd){
+			$ht=$cd->find('div.hero-title',0);
+			$img=$cd->find('img',0);
+			if($ht){
+				$name=trim($ht->plaintext);
+				$hid=array_search(cn_gt($name),$hero);
+				$imgSrc=''; if($img){ $src=$img->getAttribute('src'); if($src){ $imgSrc = strpos($src,'http')===0?$src:('https://game-tournaments.com'.$src); } }
+				if($hid!==false && $hid!==null && sizeof($team1['heroes'])<5){ $team1['heroes'][]=['id'=>$hid,'hname'=>$name,'image'=>$imgSrc,'wcc'=>'']; }
+			}
+		}
 	}
 	if(sizeof($blocks)>=2){
 		$cards = $blocks[1]->find('div.card');
-		foreach($cards as $cd){ $ht=$cd->find('div.hero-title',0); if($ht){ $name=trim($ht->plaintext); $hid=array_search(cn_gt($name),$hero); if($hid!==false && $hid!==null && sizeof($team2['heroes'])<5){ $team2['heroes'][]=['id'=>$hid,'hname'=>$name,'image'=>'','wcc'=>'']; } } }
+		foreach($cards as $cd){
+			$ht=$cd->find('div.hero-title',0);
+			$img=$cd->find('img',0);
+			if($ht){
+				$name=trim($ht->plaintext);
+				$hid=array_search(cn_gt($name),$hero);
+				$imgSrc=''; if($img){ $src=$img->getAttribute('src'); if($src){ $imgSrc = strpos($src,'http')===0?$src:('https://game-tournaments.com'.$src); } }
+				if($hid!==false && $hid!==null && sizeof($team2['heroes'])<5){ $team2['heroes'][]=['id'=>$hid,'hname'=>$name,'image'=>$imgSrc,'wcc'=>'']; }
+			}
+		}
 	}
 	if(sizeof($team1['heroes']) && sizeof($team2['heroes'])){
+		$nm['league'] = $league;
 		$nm['team1']=$team1; $nm['team2']=$team2; $res_matches[]=$nm;
 	}
 }
@@ -155,6 +180,38 @@ foreach($res_matches as $m){
 		$m['total'] = number_format(($nb1-$nb2), 2, '.', '');
 		$m['total_success'] = ($nb1>$nb2);
 
+		// Build HTML body with 10 hero icons (5 per team) and metrics
+		$gh = '<div style="width:640px;max-width:100%;border:1px solid #ccc;padding:16px;font-family:Arial,Helvetica,sans-serif;">';
+		$gh.= '<h2 style="margin:0 0 8px 0;">'.htmlspecialchars(($m['team1']['name']??'Radiant')).' vs '.htmlspecialchars(($m['team2']['name']??'Dire')).'</h2>';
+		if(isset($m['league']) && $m['league']){ $gh.= '<div style="margin:0 0 16px 0;color:#666;">'.htmlspecialchars($m['league']).'</div>'; }
+		$gh.='<div style="margin:0 0 6px 0;font-weight:bold;">'.htmlspecialchars(($m['team1']['name']??'Radiant')).'</div>';
+		$gh.='<div style="display:flex;gap:10px;">';
+		for($i=0;$i<min(5,sizeof($m['team1']['heroes']));$i++){
+			$hi=$m['team1']['heroes'][$i];
+			$gh.='<div style="width:110px;text-align:center;font-size:12px;">';
+			if(!empty($hi['image'])){ $gh.='<img src="'.htmlspecialchars($hi['image']).'" style="width:100%;height:auto;border-radius:4px;">'; }
+			$gh.='<div>'.htmlspecialchars($hi['name']).'</div>';
+			$gh.='<div>'.htmlspecialchars($hi['wr']).' + <span style="'.(($hi['wr_2_success']??true)?'color:green;':'color:red;').'">'.htmlspecialchars($hi['wr_2']).'</span></div>';
+			$gh.='</div>';
+		}
+		$gh.='</div>';
+		$gh.='<div style="margin:8px 0;font-size:14px;">Score: '.htmlspecialchars($m['team1']['score']).'</div>';
+		$gh.='<hr style="border:none;border-top:1px solid #eee;margin:12px 0;">';
+		$gh.='<div style="margin:0 0 6px 0;font-weight:bold;">'.htmlspecialchars(($m['team2']['name']??'Dire')).'</div>';
+		$gh.='<div style="display:flex;gap:10px;">';
+		for($i=0;$i<min(5,sizeof($m['team2']['heroes']));$i++){
+			$hi=$m['team2']['heroes'][$i];
+			$gh.='<div style="width:110px;text-align:center;font-size:12px;">';
+			if(!empty($hi['image'])){ $gh.='<img src="'.htmlspecialchars($hi['image']).'" style="width:100%;height:auto;border-radius:4px;">'; }
+			$gh.='<div>'.htmlspecialchars($hi['name']).'</div>';
+			$gh.='<div>'.htmlspecialchars($hi['wr']).' + <span style="'.(($hi['wr_2_success']??true)?'color:green;':'color:red;').'">'.htmlspecialchars($hi['wr_2']).'</span></div>';
+			$gh.='</div>';
+		}
+		$gh.='</div>';
+		$gh.='<div style="margin:8px 0;font-size:14px;">Score: '.htmlspecialchars($m['team2']['score']).'</div>';
+		$gh.='<div style="margin-top:10px;font-size:18px;'.($m['total_success']?'color:green;':'color:red;').'">Total: '.htmlspecialchars($m['total']).'</div>';
+		$gh.='</div>';
+
 		$mets=[]; $total_f = floatval($m['total']);
 		if(($total_f<0&&$total_f<$email_if_less)||$total_f>$email_if_greater){ $cond_one=true; $mets[]='Condition 1 is met'; }
 		if((!isset($team_have_plus)||!is_array($team_have_plus)||!sizeof($team_have_plus)) ||
@@ -170,7 +227,7 @@ foreach($res_matches as $m){
 		if((!isset($anh_have)||!sizeof($anh_have))||$hero_have_anh){ $cond_4=true; $mets[]='Condition 4 is met'; }
 		$cond_5=true; // TD not applicable
 
-		echo '<pre>'.json_encode($mets,JSON_PRETTY_PRINT).'</pre>';
+		if($debug){ echo '<pre>'.json_encode($mets,JSON_PRETTY_PRINT).'</pre>'; }
 		if($debug||($cond_one&&$cond_2&&$cond_3&&$cond_4&&$cond_5)){
 			$mail = new PHPMailer(true);
 			try{
@@ -180,12 +237,13 @@ foreach($res_matches as $m){
 				else if(isset($gt_email) && $gt_email){ $mail->addAddress($gt_email); }
 				$mail->SMTPOptions = ['ssl'=>['verify_peer'=>false,'verify_peer_name'=>false,'allow_self_signed'=>true]];
 				$mail->CharSet='UTF-8'; $mail->isHTML(true);
-				$mail->Subject = $m['team1']['name'].' vs '.$m['team2']['name'].' - Game-Tournaments';
-				$mail->Body = 'Total: '.$m['total'];
+				$league = isset($m['league'])?$m['league']:'';
+				$mail->Subject = ($m['team1']['name']??'Radiant').' vs '.($m['team2']['name']??'Dire').($league?(' - '.$league):'');
+				$mail->Body = $gh;
 				$mail->AltBody = 'GT match alert';
-				$mail->send(); echo 'email sent';
-			}catch(Exception $e){ echo 'email error'; }
-			echo '<br/>';
+				$mail->send(); if($debug) echo 'email sent';
+			}catch(Exception $e){ if($debug) echo 'email error'; }
+			if($debug) echo '<br/>';
 		}
 		file_put_contents($file, json_encode($m));
 	}
